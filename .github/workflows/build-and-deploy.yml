@@ -53,7 +53,7 @@ jobs:
               commit_sha = manifest.get('commit_sha', 'main')
               local_source = os.path.join(os.path.dirname(manifest_path), 'source')
 
-              # Determine source directory: clone external repo or use local
+              # Determine source directory
               if source_repo and not source_repo.endswith('/GhostESP-AssetPacks'):
                   clone_dir = f'sources/{asset_id}'
                   print(f"Cloning {source_repo} at {commit_sha}...")
@@ -72,6 +72,20 @@ jobs:
                   print(f"Skipping {asset_id}: no source found")
                   continue
 
+              # Upload preview image if specified
+              preview_file = manifest.get('preview', '')
+              if preview_file:
+                  preview_path = os.path.join(source_dir, preview_file)
+                  if os.path.isfile(preview_path):
+                      r2_key = f"assets/{asset_id}/{preview_file}"
+                      subprocess.run([
+                          'aws', 's3', 'cp', preview_path, f"s3://{r2_bucket}/{r2_key}",
+                          '--endpoint-url', r2_endpoint,
+                          '--content-type', 'image/png'
+                      ], check=True)
+                      print(f"Uploaded preview: {r2_url}/{r2_key}")
+
+              # Build .gtheme
               print(f"Building asset pack: {asset_id}...")
               result = subprocess.run(
                   ['gbt', 'asset', 'pack', '--archive', '--out', f'build/{asset_id}', source_dir],
@@ -129,6 +143,7 @@ jobs:
 
               asset_id = manifest['id']
               filename = f"{asset_id}.gtheme"
+              preview_file = manifest.get('preview', '')
 
               entry = {
                   'id': asset_id,
@@ -141,6 +156,7 @@ jobs:
                   'contents': manifest.get('contents', []),
                   'file': filename,
                   'url': f"{r2_url}/assets/{asset_id}/{filename}",
+                  'preview': f"{r2_url}/assets/{asset_id}/{preview_file}" if preview_file else '',
                   'reviewed': manifest.get('reviewed', False)
               }
               catalog['assets'].append(entry)
