@@ -1,15 +1,21 @@
 {
-  "generated_at": "2026-06-04T00:00:00Z",
+  "generated_at": "2026-06-04T05:28:20.792858+00:00",
   "assets": [
     {
       "id": "dedsec",
       "name": "DedSec",
       "version": "1",
-      "authors": ["GhostESP"],
+      "authors": [
+        "GhostESP"
+      ],
       "category": "Theme",
       "type": "asset",
       "description": "Dark DedSec-inspired GhostESP theme with purple accents, skull app icons, and a full-screen menu background.",
-      "contents": ["Icons", "Background", "Colors"],
+      "contents": [
+        "Icons",
+        "Background",
+        "Colors"
+      ],
       "file": "dedsec.gtheme",
       "url": "https://gesp.fuckyourcdn.com/assets/dedsec/dedsec.gtheme",
       "reviewed": true
