@@ -49,10 +49,27 @@ jobs:
                   continue
 
               asset_id = manifest['id']
-              source_dir = os.path.join(os.path.dirname(manifest_path), 'source')
+              source_repo = manifest.get('source_repo', '')
+              commit_sha = manifest.get('commit_sha', 'main')
+              local_source = os.path.join(os.path.dirname(manifest_path), 'source')
 
-              if not os.path.isdir(source_dir):
-                  print(f"Skipping {asset_id}: no source directory")
+              # Determine source directory: clone external repo or use local
+              if source_repo and not source_repo.endswith('/GhostESP-AssetPacks'):
+                  clone_dir = f'sources/{asset_id}'
+                  print(f"Cloning {source_repo} at {commit_sha}...")
+                  result = subprocess.run(
+                      ['git', 'clone', '--depth=1', source_repo, clone_dir],
+                      capture_output=True, text=True
+                  )
+                  if result.returncode != 0:
+                      print(f"Clone failed for {asset_id}: {result.stderr}")
+                      continue
+                  source_dir = clone_dir
+              elif os.path.isdir(local_source):
+                  print(f"Using local source for {asset_id}")
+                  source_dir = local_source
+              else:
+                  print(f"Skipping {asset_id}: no source found")
                   continue
 
               print(f"Building asset pack: {asset_id}...")
@@ -62,6 +79,8 @@ jobs:
               )
               if result.returncode != 0:
                   print(f"Build failed for {asset_id}: {result.stderr}")
+                  if result.stdout:
+                      print(f"stdout: {result.stdout}")
                   continue
 
               gtheme_files = glob.glob(f'build/{asset_id}/**/*.gtheme', recursive=True)

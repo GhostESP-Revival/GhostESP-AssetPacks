@@ -8,5 +8,7 @@
   "description": "A short description of your asset pack.",
   "contents": ["Icons", "Background", "Colors"],
   "license": "GPL-3.0",
+  "source_repo": "https://github.com/yourname/your-asset-pack",
+  "commit_sha": "abc123def456...",
   "reviewed": false
 }

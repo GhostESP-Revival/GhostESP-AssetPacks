@@ -8,5 +8,7 @@
   "description": "Dark DedSec-inspired GhostESP theme with purple accents, skull app icons, and a full-screen menu background.",
   "contents": ["Icons", "Background", "Colors"],
   "license": "GPL-3.0",
+  "source_repo": "https://github.com/GhostESP-Revival/GhostESP-AssetPacks",
+  "commit_sha": "d35f681",
   "reviewed": true
 }

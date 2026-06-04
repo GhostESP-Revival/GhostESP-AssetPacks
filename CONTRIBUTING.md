@@ -1,23 +1,14 @@
 # Contributing to GhostESP Asset Catalog
 
-## Requirements
+## How It Works
 
-1. **Open Source License** - Asset packs must be licensed under an open source license
-2. **Unique ID** - Your asset ID must not conflict with existing entries
-3. **Valid source** - Your source must build successfully with `gbt asset pack`
+1. You PR a `manifest.json` pointing to your source repo
+2. Maintainers review and merge
+3. CI clones your source, builds `.gtheme` with `gbt`, uploads to R2 CDN
 
-## Submitting an Asset Pack
+## Manifest Format
 
-### Step 1: Prepare your source files
-
-Your source directory should contain a `manifest.json` and the PNG assets it references. It should build with:
-```bash
-gbt asset pack --archive your_pack/source/
-```
-
-### Step 2: Create your manifest
-
-Copy `templates/asset-manifest.json` to `assets/<your_pack_id>/manifest.json` and fill in all fields:
+Copy `templates/asset-manifest.json` to `assets/<your_pack_id>/manifest.json`:
 
 | Field | Required | Description |
 |-------|----------|-------------|
@@ -30,21 +21,47 @@ Copy `templates/asset-manifest.json` to `assets/<your_pack_id>/manifest.json` an
 | `description` | Yes | Short description |
 | `contents` | No | Array of what's included (Icons, Background, Colors) |
 | `license` | Yes | SPDX license identifier |
+| `source_repo` | Yes | GitHub URL to your source repo |
+| `commit_sha` | Yes | Commit hash with the source to build (so builds are reproducible) |
 
-### Step 3: Add your source files
+## Source Repo Requirements
 
-Place your source files in `assets/<your_pack_id>/source/`:
-- `manifest.json` (the gbt manifest with colors, icon_sources, etc.)
-- PNG files for icons and backgrounds
+Your source repo must:
+1. Contain a valid `gbt` asset pack (manifest.json + PNG files)
+2. Build successfully with `gbt asset pack --archive .`
+3. Be a public GitHub repository
 
-### Step 4: Open a Pull Request
+## Example
 
-1. Fork this repository
-2. Create a branch
-3. Commit your changes
-4. Open a PR against `main`
+```
+assets/my_theme/
+└── manifest.json    # Points to your external source repo
+```
+
+Your manifest.json:
+```json
+{
+  "id": "my_theme",
+  "name": "My Theme",
+  "version": "1",
+  "authors": ["YourName"],
+  "category": "Theme",
+  "type": "asset",
+  "description": "A cool theme.",
+  "contents": ["Icons", "Background", "Colors"],
+  "license": "GPL-3.0",
+  "source_repo": "https://github.com/YourName/my-ghostesp-theme",
+  "commit_sha": "abc123def456",
+  "reviewed": false
+}
+```
+
+## Updating
+
+Increment the version in your manifest, update `commit_sha` to point to the new source commit, and open a new PR.
 
 ## Rules
 
 - Do not edit `catalog.json` directly - it is auto-generated
-- Do not commit binary `.gtheme` files - they are built by CI
+- Your source repo must be public
+- Respond to review feedback within 14 days
