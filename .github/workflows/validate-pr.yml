@@ -1,0 +1,52 @@
+name: Validate Manifests
+
+on:
+  pull_request:
+    paths:
+      - 'assets/**/manifest.json'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate changed manifests
+        run: |
+          import json
+          import sys
+          import os
+
+          required_fields = ['id', 'name', 'version', 'authors', 'category', 'type', 'description', 'license']
+          valid_categories = ['Theme', 'Icons', 'Background', 'Sounds', 'Fonts']
+
+          errors = []
+
+          for root, dirs, files in os.walk('assets'):
+              if 'manifest.json' in files and root != 'assets':
+                  path = os.path.join(root, 'manifest.json')
+                  try:
+                      with open(path) as f:
+                          manifest = json.load(f)
+                  except json.JSONDecodeError as e:
+                      errors.append(f"{path}: Invalid JSON - {e}")
+                      continue
+
+                  for field in required_fields:
+                      if field not in manifest:
+                          errors.append(f"{path}: Missing required field '{field}'")
+
+                  if manifest.get('type') != 'asset':
+                      errors.append(f"{path}: 'type' must be 'asset'")
+
+                  if not isinstance(manifest.get('authors', []), list):
+                      errors.append(f"{path}: 'authors' must be an array")
+
+          if errors:
+              print("Validation failed:")
+              for error in errors:
+                  print(f"  - {error}")
+              sys.exit(1)
+          else:
+              print("All manifests are valid.")
+        shell: python

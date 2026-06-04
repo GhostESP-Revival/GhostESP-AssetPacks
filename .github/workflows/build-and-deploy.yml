@@ -1,0 +1,143 @@
+name: Build and Deploy to R2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'assets/**'
+
+  workflow_dispatch:
+
+env:
+  R2_BUCKET: ghostesp-marketplace
+  R2_PUBLIC_URL: https://gesp.fuckyourcdn.com
+
+jobs:
+  build-assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ghostbt
+        run: pip install ghostbt
+
+      - name: Build and upload assets
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+        run: |
+          import json
+          import subprocess
+          import os
+          import glob
+
+          r2_bucket = os.environ['R2_BUCKET']
+          r2_url = os.environ['R2_PUBLIC_URL']
+          r2_endpoint = os.environ['R2_ENDPOINT']
+
+          for manifest_path in glob.glob('assets/*/manifest.json'):
+              with open(manifest_path) as f:
+                  manifest = json.load(f)
+
+              if manifest.get('type') != 'asset':
+                  continue
+
+              asset_id = manifest['id']
+              source_dir = os.path.join(os.path.dirname(manifest_path), 'source')
+
+              if not os.path.isdir(source_dir):
+                  print(f"Skipping {asset_id}: no source directory")
+                  continue
+
+              print(f"Building asset pack: {asset_id}...")
+              result = subprocess.run(
+                  ['gbt', 'asset', 'pack', '--archive', '--out', f'build/{asset_id}', source_dir],
+                  capture_output=True, text=True
+              )
+              if result.returncode != 0:
+                  print(f"Build failed for {asset_id}: {result.stderr}")
+                  continue
+
+              gtheme_files = glob.glob(f'build/{asset_id}/**/*.gtheme', recursive=True)
+              for gtheme in gtheme_files:
+                  filename = os.path.basename(gtheme)
+                  r2_key = f"assets/{asset_id}/{filename}"
+
+                  subprocess.run([
+                      'aws', 's3', 'cp', gtheme, f"s3://{r2_bucket}/{r2_key}",
+                      '--endpoint-url', r2_endpoint,
+                      '--content-type', 'application/octet-stream'
+                  ], check=True)
+
+                  print(f"Uploaded: {r2_url}/{r2_key}")
+        shell: python
+
+  regenerate-catalog:
+    needs: build-assets
+    if: needs.build-assets.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate catalog.json
+        run: |
+          import json
+          import os
+          import glob
+          from datetime import datetime, timezone
+
+          r2_url = os.environ['R2_PUBLIC_URL']
+
+          catalog = {
+              'generated_at': datetime.now(timezone.utc).isoformat(),
+              'assets': []
+          }
+
+          for manifest_path in sorted(glob.glob('assets/*/manifest.json')):
+              with open(manifest_path) as f:
+                  manifest = json.load(f)
+
+              if manifest.get('type') != 'asset':
+                  continue
+
+              asset_id = manifest['id']
+              filename = f"{asset_id}.gtheme"
+
+              entry = {
+                  'id': asset_id,
+                  'name': manifest['name'],
+                  'version': manifest.get('version', '1'),
+                  'authors': manifest.get('authors', ['Unknown']),
+                  'category': manifest.get('category', 'Theme'),
+                  'type': manifest.get('type', 'asset'),
+                  'description': manifest.get('description', ''),
+                  'contents': manifest.get('contents', []),
+                  'file': filename,
+                  'url': f"{r2_url}/assets/{asset_id}/{filename}",
+                  'reviewed': manifest.get('reviewed', False)
+              }
+              catalog['assets'].append(entry)
+
+          with open('catalog.json', 'w') as f:
+              json.dump(catalog, f, indent=2)
+
+          print(f"Generated catalog.json with {len(catalog['assets'])} assets")
+        shell: python
+        env:
+          R2_PUBLIC_URL: ${{ env.R2_PUBLIC_URL }}
+
+      - name: Commit catalog.json
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add catalog.json
+          git diff --staged --quiet || git commit -m "chore: regenerate catalog.json [skip ci]"
+          git push
