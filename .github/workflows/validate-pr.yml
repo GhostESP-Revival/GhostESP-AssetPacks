@@ -23,14 +23,19 @@ jobs:
           errors = []
 
           for root, dirs, files in os.walk('assets'):
-              if 'manifest.json' in files and root != 'assets':
-                  path = os.path.join(root, 'manifest.json')
-                  try:
-                      with open(path) as f:
-                          manifest = json.load(f)
-                  except json.JSONDecodeError as e:
-                      errors.append(f"{path}: Invalid JSON - {e}")
-                      continue
+              if 'manifest.json' not in files:
+                  continue
+              rel = os.path.relpath(root, 'assets')
+              parts = rel.split(os.sep)
+              if len(parts) != 1:
+                  continue
+              path = os.path.join(root, 'manifest.json')
+              try:
+                  with open(path) as f:
+                      manifest = json.load(f)
+              except json.JSONDecodeError as e:
+                  errors.append(f"{path}: Invalid JSON - {e}")
+                  continue
 
                   for field in required_fields:
                       if field not in manifest:
