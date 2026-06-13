@@ -8,7 +8,7 @@
   "description": "TWH GhostESP theme with purple accents, custom app icons, and background artwork.",
   "contents": ["Icons", "Background", "Colors"],
   "license": "MIT",
-  "source_repo": "https://github.com/GhostESP-Revival/GhostESP-AssetPacks",
-  "commit_sha": "main",
+  "source_repo": "https://github.com/Billi-Green/TWH_AssetPack",
+  "commit_sha": "85e8245550fa3bfe85e01e250c45d7a8ea3ac96f",
   "reviewed": false
 }
