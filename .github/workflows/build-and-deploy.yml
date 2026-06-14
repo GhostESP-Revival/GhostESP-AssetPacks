@@ -48,6 +48,7 @@ jobs:
           GTHEME_MAGIC = b"GAPP"
           ARCHIVE_VERSION = 1
           ENTRY_MAGIC = b"FILE"
+          MAX_GTHEME_ENTRY_SIZE = 256 * 1024
 
 
           def fnv1a64(data: bytes) -> int:
@@ -60,8 +61,11 @@ jobs:
 
           def write_gtheme(package_dir: str, out_path: str) -> None:
               files = []
-              for root, _, names in os.walk(package_dir):
+              for root, dirs, names in os.walk(package_dir):
+                  dirs[:] = [d for d in dirs if d != '.git' and d != '__pycache__']
                   for name in names:
+                      if name.endswith('.gtheme'):
+                          raise ValueError(f"nested .gtheme is not allowed: {os.path.join(root, name)}")
                       files.append(os.path.join(root, name))
               files.sort()
               with open(out_path, 'wb') as out:
@@ -69,6 +73,8 @@ jobs:
                   for fpath in files:
                       rel = os.path.relpath(fpath, package_dir).replace(os.sep, '/').encode('utf-8')
                       data = open(fpath, 'rb').read()
+                      if len(data) > MAX_GTHEME_ENTRY_SIZE:
+                          raise ValueError(f"archive entry too large for firmware: {fpath} ({len(data)} bytes)")
                       out.write(struct.pack(
                           '<4sHHIIQ',
                           ENTRY_MAGIC, 0, len(rel), len(data), len(data), fnv1a64(data),
@@ -77,21 +83,88 @@ jobs:
                       out.write(data)
 
 
+          def validate_gtheme(path: str) -> None:
+              with open(path, 'rb') as f:
+                  header = f.read(12)
+                  if len(header) != 12:
+                      raise ValueError(f"invalid gtheme header: {path}")
+                  magic, version, _reserved, file_count = struct.unpack('<4sHHI', header)
+                  if magic != GTHEME_MAGIC or version != ARCHIVE_VERSION:
+                      raise ValueError(f"unsupported gtheme archive: {path}")
+
+                  for index in range(file_count):
+                      entry = f.read(24)
+                      if len(entry) != 24:
+                          raise ValueError(f"truncated gtheme entry {index}: {path}")
+                      magic, _method, name_len, raw_size, payload_size, _hash = struct.unpack('<4sHHIIQ', entry)
+                      if magic != ENTRY_MAGIC:
+                          raise ValueError(f"invalid gtheme entry {index}: {path}")
+                      if raw_size > MAX_GTHEME_ENTRY_SIZE or payload_size > MAX_GTHEME_ENTRY_SIZE:
+                          raise ValueError(
+                              f"gtheme entry {index} too large for firmware: raw={raw_size} payload={payload_size}"
+                          )
+                      name = f.read(name_len).decode('utf-8')
+                      if name.startswith('.git/') or name.endswith('.gtheme'):
+                          raise ValueError(f"forbidden gtheme entry {index}: {name}")
+                      f.seek(payload_size, os.SEEK_CUR)
+
+
+          def runtime_asset_paths(manifest: dict) -> list[str]:
+              paths = set()
+
+              def add_path(value):
+                  if not isinstance(value, str) or not value:
+                      return
+                  rel = value.replace('\\', '/')
+                  parts = rel.split('/')
+                  if rel.startswith('/') or any(part in ('', '.', '..') for part in parts):
+                      raise ValueError(f"unsafe asset path in manifest: {value}")
+                  paths.add(rel)
+
+              for variants in manifest.get('icons', {}).values():
+                  if isinstance(variants, dict):
+                      for rel in variants.values():
+                          add_path(rel)
+                  else:
+                      add_path(variants)
+
+              for value in manifest.get('backgrounds', {}).values():
+                  if isinstance(value, dict):
+                      add_path(value.get('source'))
+                  else:
+                      add_path(value)
+
+              for legacy_key in ('bg_tile', 'background'):
+                  add_path(manifest.get(legacy_key))
+
+              return sorted(paths)
+
+
           def package_gimg_source(source_dir: str, asset_id: str, build_root: str) -> str:
-              """Pass-through: copy pre-built .gimg source into a package dir."""
+              """Pass-through: package only pre-built .gimg files referenced by manifest."""
               pkg = os.path.join(build_root, asset_id)
               if os.path.isdir(pkg):
                   shutil.rmtree(pkg)
-              shutil.copytree(source_dir, pkg)
+              os.makedirs(pkg, exist_ok=True)
               manifest_path = os.path.join(pkg, 'manifest.json')
-              if not os.path.isfile(manifest_path):
+              source_manifest_path = os.path.join(source_dir, 'manifest.json')
+              if not os.path.isfile(source_manifest_path):
                   raise FileNotFoundError(f"manifest.json not found in {source_dir}")
-              with open(manifest_path) as f:
-                      manifest = json.load(f)
+              with open(source_manifest_path) as f:
+                  manifest = json.load(f)
               if 'version' not in manifest:
                   manifest['version'] = 1
               if 'format' not in manifest:
                   manifest['format'] = 'ghostesp_asset_pack'
+
+              for rel in runtime_asset_paths(manifest):
+                  src = os.path.join(source_dir, rel)
+                  if not os.path.isfile(src):
+                      raise FileNotFoundError(f"referenced asset not found: {rel}")
+                  dst = os.path.join(pkg, rel)
+                  os.makedirs(os.path.dirname(dst), exist_ok=True)
+                  shutil.copy2(src, dst)
+
               with open(manifest_path, 'w') as f:
                   json.dump(manifest, f, indent=2, sort_keys=True)
                   f.write('\n')
@@ -185,7 +258,7 @@ jobs:
                   if result.returncode != 0:
                       print(f"Build failed for {asset_id}")
                       continue
-                  gtheme_files = glob.glob(f'{build_root}/**/*.gtheme', recursive=True)
+                  gtheme_files = glob.glob(os.path.join(build_root, '*.gtheme'))
               elif has_runtime_assets:
                   # Source ships pre-converted .gimg assets referenced by manifest.
                   try:
@@ -199,6 +272,12 @@ jobs:
                   continue
 
               for gtheme in gtheme_files:
+                  try:
+                      validate_gtheme(gtheme)
+                  except Exception as e:
+                      print(f"Skipping invalid archive {gtheme}: {e}")
+                      continue
+
                   filename = os.path.basename(gtheme)
                   r2_key = f"assets/{asset_id}/{filename}"
 
